@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Dict, List, Tuple
 import signal
 import json
+from tqdm import tqdm
 
 # Test configuration
 STRESS_TESTS = ['cpu', 'int64', 'fp-math', 'cache', 'stream']
@@ -142,8 +143,6 @@ def run_stress_test(test_type: str, cpu_target: int, duration: int) -> Dict[str,
             '--cpu-load', str(cpu_target)
         ]
     
-    print(f"Running {test_type} test with {cpu_target}% CPU target...")
-    
     try:
         # Start stress-ng process
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
@@ -216,28 +215,35 @@ def main():
         
         # Run tests
         total_tests = len(STRESS_TESTS) * len(CPU_TARGETS)
-        test_count = 0
         
-        for test_type in STRESS_TESTS:
-            for cpu_target in CPU_TARGETS:
-                test_count += 1
-                print(f"\nTest {test_count}/{total_tests}")
-                
-                # Run the test
-                result = run_stress_test(test_type, cpu_target, TEST_DURATION)
-                results.append(result)
-                
-                # Save results incrementally
-                with open(results_file, 'w', newline='') as f:
-                    writer = csv.DictWriter(f, fieldnames=headers)
-                    writer.writeheader()
-                    writer.writerows(results)
-                
-                print(f"  Actual CPU: {result['actual_cpu_utilization']:.1f}%")
-                print(f"  Bogo ops/s: {result['bogo_ops_per_sec']:.1f}")
-                
-                # Cool down between tests
-                time.sleep(2)
+        # Create progress bar
+        with tqdm(total=total_tests, desc="Running stress tests", unit="test") as pbar:
+            for test_type in STRESS_TESTS:
+                for cpu_target in CPU_TARGETS:
+                    # Update progress bar description
+                    pbar.set_description(f"Running {test_type} @ {cpu_target}% CPU")
+                    
+                    # Run the test
+                    result = run_stress_test(test_type, cpu_target, TEST_DURATION)
+                    results.append(result)
+                    
+                    # Save results incrementally
+                    with open(results_file, 'w', newline='') as f:
+                        writer = csv.DictWriter(f, fieldnames=headers)
+                        writer.writeheader()
+                        writer.writerows(results)
+                    
+                    # Update postfix with latest results
+                    pbar.set_postfix({
+                        'Actual CPU': f"{result['actual_cpu_utilization']:.1f}%",
+                        'Bogo ops/s': f"{result['bogo_ops_per_sec']:.1f}"
+                    })
+                    
+                    # Update progress
+                    pbar.update(1)
+                    
+                    # Cool down between tests
+                    time.sleep(2)
     
     finally:
         # Always restore power settings
