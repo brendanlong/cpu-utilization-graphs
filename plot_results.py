@@ -64,7 +64,7 @@ def plot_bogo_ops_vs_cpu(df: pd.DataFrame, output_prefix: str):
     plt.savefig(f'{output_prefix}_all_tests.png', dpi=300, bbox_inches='tight')
     plt.close()
     
-    # Figure 2: Individual plots for each test type
+    # Figure 2: Individual plots for each test type (Target vs Actual CPU)
     fig, axes = plt.subplots(2, 3, figsize=(18, 12))
     axes = axes.flatten()
     
@@ -95,6 +95,44 @@ def plot_bogo_ops_vs_cpu(df: pd.DataFrame, output_prefix: str):
     
     plt.tight_layout()
     plt.savefig(f'{output_prefix}_cpu_accuracy.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # Figure 2b: Individual plots for each test type (CPU vs BogoMIPS)
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    axes = axes.flatten()
+    
+    for idx, test_type in enumerate(test_types):
+        if idx < len(axes):
+            ax = axes[idx]
+            test_data = df[df['test_type'] == test_type]
+            
+            # Plot actual CPU utilization vs bogo ops
+            ax.scatter(test_data['actual_cpu_utilization'], 
+                      test_data['bogo_ops_per_sec'],
+                      s=60, alpha=0.7, color='green')
+            
+            # Add trend line
+            if len(test_data) > 1:
+                z = np.polyfit(test_data['actual_cpu_utilization'], 
+                              test_data['bogo_ops_per_sec'], 1)
+                p = np.poly1d(z)
+                x_trend = np.linspace(test_data['actual_cpu_utilization'].min(),
+                                    test_data['actual_cpu_utilization'].max(), 100)
+                ax.plot(x_trend, p(x_trend), 'r--', alpha=0.5, linewidth=2, 
+                       label=f'Trend: {z[0]:.1f}x + {z[1]:.1f}')
+            
+            ax.set_xlabel('Actual CPU Utilization (%)', fontsize=10)
+            ax.set_ylabel('Bogo Operations per Second', fontsize=10)
+            ax.set_title(f'{test_type} - CPU vs BogoMIPS', fontsize=12)
+            ax.legend(loc='best', fontsize=9)
+            ax.grid(True, alpha=0.3)
+    
+    # Hide unused subplots
+    for idx in range(len(test_types), len(axes)):
+        axes[idx].set_visible(False)
+    
+    plt.tight_layout()
+    plt.savefig(f'{output_prefix}_cpu_vs_bogomips.png', dpi=300, bbox_inches='tight')
     plt.close()
     
     # Figure 3: Efficiency plot (Bogo ops per CPU %)
@@ -216,6 +254,7 @@ def main():
     print(f"\nGenerated files:")
     print(f"  - {output_prefix}_all_tests.png")
     print(f"  - {output_prefix}_cpu_accuracy.png")
+    print(f"  - {output_prefix}_cpu_vs_bogomips.png")
     print(f"  - {output_prefix}_efficiency.png")
     print(f"  - {output_prefix}_heatmap.png")
     print(f"  - {output_prefix}_summary.txt")
