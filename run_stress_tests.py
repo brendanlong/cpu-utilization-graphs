@@ -84,15 +84,21 @@ def parse_stress_ng_output(output: str) -> Dict[str, float]:
     """Parse stress-ng output to extract metrics."""
     metrics = {}
     
-    # Extract bogo ops per second
-    bogo_match = re.search(r'bogo ops/s\s+\(secs\)\s*:\s*([\d.]+)', output)
-    if bogo_match:
-        metrics['bogo_ops_per_sec'] = float(bogo_match.group(1))
-    
-    # Extract total bogo ops
-    total_bogo_match = re.search(r'(\d+)\s+bogo ops', output)
-    if total_bogo_match:
-        metrics['total_bogo_ops'] = float(total_bogo_match.group(1))
+    # Look for metric lines starting with "stress-ng: metrc:"
+    # The format is: stress-ng: metrc: [PID] test_name bogo_ops real_time ... bogo_ops_per_sec ...
+    lines = output.split('\n')
+    for line in lines:
+        if 'stress-ng: metrc:' in line and 'stressor' not in line:
+            # This is a data line, not the header
+            parts = line.split()
+            if len(parts) >= 8:
+                try:
+                    # Format: stress-ng: metrc: [PID] test_name bogo_ops real_time usr_time sys_time bogo_ops/s(real) bogo_ops/s(usr+sys) ...
+                    # Index 3 is test name, 4 is bogo ops, 8 is bogo ops/s (real time)
+                    metrics['total_bogo_ops'] = float(parts[4])
+                    metrics['bogo_ops_per_sec'] = float(parts[8])
+                except (ValueError, IndexError):
+                    pass
     
     return metrics
 
