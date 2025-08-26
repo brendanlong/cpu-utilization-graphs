@@ -15,7 +15,7 @@ import signal
 from tqdm import tqdm
 
 # Test configuration
-STRESS_TESTS = ["cpu", "int64", "float", "cache", "stream"]
+STRESS_TESTS = ["cpu", "int64", "double", "matrixprod"]  # "cache", "stream"]
 CPU_TARGETS = list(range(1, 101))
 TEST_DURATION = 10  # seconds
 WORKERS = os.cpu_count()  # Number of CPU cores
