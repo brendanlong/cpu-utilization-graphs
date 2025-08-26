@@ -15,7 +15,7 @@ import signal
 from tqdm import tqdm
 
 # Test configuration
-STRESS_TESTS = ["cpu", "int64", "fp-math", "cache", "stream"]
+STRESS_TESTS = ["cpu", "int64", "float", "cache", "stream"]
 CPU_TARGETS = list(range(1, 101))
 TEST_DURATION = 10  # seconds
 WORKERS = os.cpu_count()  # Number of CPU cores
@@ -150,25 +150,39 @@ def run_stress_test(test_type: str, cpu_target: int, duration: int) -> Dict[str,
     }
 
     # Build stress-ng command
-    cmd = [
-        "stress-ng",
-        f"--{test_type}",
-        str(WORKERS),
-        "--timeout",
-        f"{duration}s",
-        "--metrics",
-        "--cpu-load",
-        str(cpu_target),
-    ]
-
-    # Special handling for cache test
-    if test_type == "cache":
+    # int64 and float are CPU methods, not standalone stressors
+    if test_type in ["int64", "float"]:
+        cmd = [
+            "stress-ng",
+            "--cpu",
+            str(WORKERS),
+            "--cpu-method",
+            test_type,
+            "--timeout",
+            f"{duration}s",
+            "--metrics",
+            "--cpu-load",
+            str(cpu_target),
+        ]
+    elif test_type == "cache":
         cmd = [
             "stress-ng",
             "--cache",
             str(WORKERS),
             "--cache-level",
             "3",  # L3 cache
+            "--timeout",
+            f"{duration}s",
+            "--metrics",
+            "--cpu-load",
+            str(cpu_target),
+        ]
+    else:
+        # Default case for cpu, stream, and other standalone stressors
+        cmd = [
+            "stress-ng",
+            f"--{test_type}",
+            str(WORKERS),
             "--timeout",
             f"{duration}s",
             "--metrics",
