@@ -19,6 +19,9 @@ STRESS_TESTS = ["cpu", "int64", "double", "matrixprod"]  # "cache", "stream"]
 CPU_TARGETS = list(range(1, 101))
 TEST_DURATION = 10  # seconds
 WORKERS = os.cpu_count()  # Number of CPU cores
+FIXED_WORKER_COUNTS = list(
+    range(1, os.cpu_count() + 1)
+)  # Test with 1 to num_cores workers
 
 
 class PowerManager:
@@ -135,14 +138,19 @@ def measure_cpu_utilization(duration: int, interval: float = 0.1) -> float:
     return sum(measurements) / len(measurements) if measurements else 0.0
 
 
-def run_stress_test(test_type: str, cpu_target: int, duration: int) -> Dict[str, any]:
+def run_stress_test(
+    test_type: str, cpu_target: int, duration: int, workers: int = None
+) -> Dict[str, any]:
     """Run a single stress-ng test and collect metrics."""
+    if workers is None:
+        workers = WORKERS
+
     result = {
         "timestamp": datetime.now().isoformat(),
         "test_type": test_type,
         "cpu_target": cpu_target,
         "duration": duration,
-        "workers": WORKERS,
+        "workers": workers,
         "actual_cpu_utilization": 0.0,
         "bogo_ops_per_sec": 0.0,
         "total_bogo_ops": 0.0,
@@ -155,40 +163,43 @@ def run_stress_test(test_type: str, cpu_target: int, duration: int) -> Dict[str,
         cmd = [
             "stress-ng",
             "--cpu",
-            str(WORKERS),
+            str(workers),
             "--cpu-method",
             test_type,
             "--timeout",
             f"{duration}s",
             "--metrics",
-            "--cpu-load",
-            str(cpu_target),
         ]
+        # Only add cpu-load if not running at 100%
+        if cpu_target < 100:
+            cmd.extend(["--cpu-load", str(cpu_target)])
     elif test_type == "cache":
         cmd = [
             "stress-ng",
             "--cache",
-            str(WORKERS),
+            str(workers),
             "--cache-level",
             "3",  # L3 cache
             "--timeout",
             f"{duration}s",
             "--metrics",
-            "--cpu-load",
-            str(cpu_target),
         ]
+        # Only add cpu-load if not running at 100%
+        if cpu_target < 100:
+            cmd.extend(["--cpu-load", str(cpu_target)])
     else:
         # Default case for cpu, stream, and other standalone stressors
         cmd = [
             "stress-ng",
             f"--{test_type}",
-            str(WORKERS),
+            str(workers),
             "--timeout",
             f"{duration}s",
             "--metrics",
-            "--cpu-load",
-            str(cpu_target),
         ]
+        # Only add cpu-load if not running at 100%
+        if cpu_target < 100:
+            cmd.extend(["--cpu-load", str(cpu_target)])
 
     try:
         # Start stress-ng process
@@ -277,17 +288,57 @@ def main():
         time.sleep(2)
 
         # Run tests
-        total_tests = len(STRESS_TESTS) * len(CPU_TARGETS)
+        # Calculate total tests: variable CPU tests + fixed worker tests
+        variable_cpu_tests = len(STRESS_TESTS) * len(CPU_TARGETS)
+        fixed_worker_tests = len(STRESS_TESTS) * len(FIXED_WORKER_COUNTS)
+        total_tests = variable_cpu_tests + fixed_worker_tests
 
         # Create progress bar
         with tqdm(total=total_tests, desc="Running stress tests", unit="test") as pbar:
+            # First run variable CPU utilization tests with fixed workers
             for test_type in STRESS_TESTS:
                 for cpu_target in CPU_TARGETS:
                     # Update progress bar description
-                    pbar.set_description(f"Running {test_type} @ {cpu_target}% CPU")
+                    pbar.set_description(
+                        f"Running {test_type} @ {cpu_target}% CPU ({WORKERS} workers)"
+                    )
 
                     # Run the test
                     result = run_stress_test(test_type, cpu_target, TEST_DURATION)
+                    results.append(result)
+
+                    # Save results incrementally
+                    with open(results_file, "w", newline="") as f:
+                        writer = csv.DictWriter(f, fieldnames=headers)
+                        writer.writeheader()
+                        writer.writerows(results)
+
+                    # Update postfix with latest results
+                    pbar.set_postfix(
+                        {
+                            "Actual CPU": f"{result['actual_cpu_utilization']:.1f}%",
+                            "Bogo ops/s": f"{result['bogo_ops_per_sec']:.1f}",
+                        }
+                    )
+
+                    # Update progress
+                    pbar.update(1)
+
+                    # Cool down between tests
+                    time.sleep(2)
+
+            # Then run fixed worker tests at 100% CPU
+            for test_type in STRESS_TESTS:
+                for worker_count in FIXED_WORKER_COUNTS:
+                    # Update progress bar description
+                    pbar.set_description(
+                        f"Running {test_type} @ 100% CPU ({worker_count} workers)"
+                    )
+
+                    # Run the test with fixed number of workers at 100% CPU
+                    result = run_stress_test(
+                        test_type, 100, TEST_DURATION, workers=worker_count
+                    )
                     results.append(result)
 
                     # Save results incrementally
@@ -320,7 +371,7 @@ def main():
     # Summary statistics
     successful_results = [r for r in results if r["error"] is None]
     if successful_results:
-        print(f"\nSummary:")
+        print("\nSummary:")
         for test_type in STRESS_TESTS:
             type_results = [
                 r for r in successful_results if r["test_type"] == test_type
