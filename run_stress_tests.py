@@ -158,8 +158,8 @@ def run_stress_test(
     }
 
     # Build stress-ng command
-    # int64 and float are CPU methods, not standalone stressors
-    if test_type in ["int64", "float"]:
+    # These are CPU methods, not standalone stressors
+    if test_type in ["double", "int64", "float", "matrixprod"]:
         cmd = [
             "stress-ng",
             "--cpu",
