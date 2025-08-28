@@ -175,11 +175,13 @@ def analyze_test_type(df, test_type):
 
     # Plot 1: Actual vs Adjusted CPU Utilization
     ax1 = axes[0]
-    ax1.scatter(actual_cpu, adjusted_cpu, alpha=0.6, s=50, label="Data points")
+    ax1.scatter(
+        actual_cpu, adjusted_cpu, alpha=0.6, s=10, label="Data points", color="g"
+    )
     if len(actual_cpu) > 1:
         x_smooth = np.linspace(actual_cpu.min(), actual_cpu.max(), 200)
         y_smooth = f_actual_to_adjusted(x_smooth)
-        ax1.plot(x_smooth, y_smooth, "r-", alpha=0.8, label="Logistic fit")
+        # ax1.plot(x_smooth, y_smooth, "r-", alpha=0.8, label="Logistic fit")
 
         # Add piecewise linear regression
         if len(actual_cpu) > 3:  # Need at least 4 points for piecewise regression
@@ -242,7 +244,7 @@ def analyze_test_type(df, test_type):
                 ax1.plot(
                     x_smooth,
                     y_piecewise,
-                    "g--",
+                    "b--",
                     alpha=0.8,
                     label="Piecewise Linear (break: 50%)",
                     linewidth=2,
@@ -283,7 +285,10 @@ def analyze_test_type(df, test_type):
             except Exception as e:
                 print(f"Warning: Piecewise linear regression failed for Plot 1: {e}")
 
-    ax1.plot([0, 100], [0, 100], "k--", alpha=0.3, label="Linear reference")
+    actual_cpu_range = [actual_cpu.min(), actual_cpu.max()]
+    ax1.plot(
+        actual_cpu_range, actual_cpu_range, "r--", alpha=0.7, label="Linear reference"
+    )
     ax1.set_xlabel("Reported CPU Utilization (%)")
     ax1.set_ylabel("Adjusted CPU Utilization (% of max Bogo ops)")
     ax1.set_title(f"CPU Utilization Mapping - {test_type.upper()} (24 workers)")
@@ -305,7 +310,7 @@ def analyze_test_type(df, test_type):
         line1 = ax2.plot(
             workers,
             workers_adjusted,
-            "r-s",
+            "g-o",
             alpha=0.7,
             label="Adjusted CPU%",
             markersize=4,
@@ -314,7 +319,7 @@ def analyze_test_type(df, test_type):
         line_actual = ax2.plot(
             workers,
             workers_actual,
-            "g-o",
+            "r--",
             alpha=0.7,
             label="Reported CPU%",
             markersize=4,
