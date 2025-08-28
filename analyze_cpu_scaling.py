@@ -7,7 +7,7 @@ Processes each test type (cpu, int64, double, matrixprod) separately.
 import polars as pl
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy import interpolate
+from scipy import optimize
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -95,7 +95,7 @@ def analyze_test_type(df, test_type):
                 f"{row['adjusted_cpu_utilization']:<15.2f} {row['bogo_ops_per_sec']:<15.2f}"
             )
 
-    # Create interpolation function for the mapping
+    # Create logistic regression for the mapping
     actual_cpu = mapping_df["actual_cpu_utilization"].to_numpy()
     adjusted_cpu = mapping_df["adjusted_cpu_utilization"].to_numpy()
 
@@ -108,23 +108,67 @@ def analyze_test_type(df, test_type):
         print(f"Insufficient data for {test_type} analysis")
         return
 
-    # Sort by actual_cpu for interpolation
+    # Sort by actual_cpu for better visualization
     sort_idx = np.argsort(actual_cpu)
     actual_cpu = actual_cpu[sort_idx]
     adjusted_cpu = adjusted_cpu[sort_idx]
 
-    # Remove duplicates in x values for interpolation
-    unique_mask = np.append(True, np.diff(actual_cpu) > 0)
-    actual_cpu = actual_cpu[unique_mask]
-    adjusted_cpu = adjusted_cpu[unique_mask]
+    # Define logistic function
+    def logistic(x, L, k, x0, b):
+        """
+        Generalized logistic function
+        L = maximum value (asymptote)
+        k = steepness of the curve
+        x0 = x value of the sigmoid midpoint
+        b = minimum value (baseline)
+        """
+        return b + L / (1 + np.exp(-k * (x - x0)))
 
-    # Create interpolation function
-    f_actual_to_adjusted = interpolate.interp1d(
-        actual_cpu,
-        adjusted_cpu,
-        kind="cubic" if len(actual_cpu) > 3 else "linear",
-        fill_value="extrapolate",
-    )
+    # Initial parameter guesses
+    # L (max) should be around 100
+    # b (min) should be around 0
+    # x0 (midpoint) should be around 50
+    # k (steepness) controls the slope
+    initial_guess = [100, 0.1, 50, 0]
+
+    # Bounds for parameters: L in [50, 150], k in [0.01, 1], x0 in [0, 100], b in [-20, 20]
+    bounds = ([50, 0.01, 0, -20], [150, 1, 100, 20])
+
+    try:
+        # Fit the logistic curve
+        params, _ = optimize.curve_fit(
+            logistic,
+            actual_cpu,
+            adjusted_cpu,
+            p0=initial_guess,
+            bounds=bounds,
+            maxfev=10000,
+        )
+
+        # Create prediction function using fitted parameters
+        f_actual_to_adjusted = lambda x: logistic(x, *params)
+
+        # Calculate R-squared for fit quality
+        residuals = adjusted_cpu - f_actual_to_adjusted(actual_cpu)
+        ss_res = np.sum(residuals**2)
+        ss_tot = np.sum((adjusted_cpu - np.mean(adjusted_cpu)) ** 2)
+        r_squared = 1 - (ss_res / ss_tot)
+
+        print(f"\nLogistic regression parameters for {test_type.upper()}:")
+        print(f"  L (max asymptote): {params[0]:.2f}")
+        print(f"  k (steepness): {params[1]:.4f}")
+        print(f"  x0 (midpoint): {params[2]:.2f}")
+        print(f"  b (baseline): {params[3]:.2f}")
+        print(f"  R-squared: {r_squared:.4f}")
+
+    except Exception as e:
+        print(
+            f"Warning: Logistic regression failed for {test_type}, falling back to linear fit"
+        )
+        print(f"Error: {e}")
+        # Fallback to simple linear fit
+        coeffs = np.polyfit(actual_cpu, adjusted_cpu, 1)
+        f_actual_to_adjusted = np.poly1d(coeffs)
 
     # Create the visualization
     fig, axes = plt.subplots(2, 2, figsize=(14, 12))
@@ -135,7 +179,7 @@ def analyze_test_type(df, test_type):
     if len(actual_cpu) > 1:
         x_smooth = np.linspace(actual_cpu.min(), actual_cpu.max(), 200)
         y_smooth = f_actual_to_adjusted(x_smooth)
-        ax1.plot(x_smooth, y_smooth, "r-", alpha=0.8, label="Interpolation")
+        ax1.plot(x_smooth, y_smooth, "r-", alpha=0.8, label="Logistic fit")
     ax1.plot([0, 100], [0, 100], "k--", alpha=0.3, label="Linear reference")
     ax1.set_xlabel("Actual CPU Utilization (%)")
     ax1.set_ylabel("Adjusted CPU Utilization (% of max Bogo ops)")
@@ -193,14 +237,9 @@ def analyze_test_type(df, test_type):
     if len(varying_workers_df) > 0:
         workers_data = varying_workers_df.sort("workers")
         workers = workers_data["workers"].to_numpy()
-        workers_bogo = workers_data["bogo_ops_per_sec"].to_numpy()
         workers_adjusted = workers_data["adjusted_cpu_utilization"].to_numpy()
 
-        ax4_twin = ax4.twinx()
         line1 = ax4.plot(
-            workers, workers_bogo, "b-o", alpha=0.7, label="Bogo ops/sec", markersize=4
-        )
-        line2 = ax4_twin.plot(
             workers,
             workers_adjusted,
             "r-s",
@@ -210,16 +249,15 @@ def analyze_test_type(df, test_type):
         )
 
         ax4.set_xlabel("Number of Workers")
-        ax4.set_ylabel("Bogo Operations per Second", color="b")
-        ax4_twin.set_ylabel("Adjusted CPU Utilization (%)", color="r")
+        ax4.set_ylabel("Adjusted CPU Utilization (%)")
         ax4.set_title(f"Performance vs Workers (100% CPU) - {test_type.upper()}")
         ax4.grid(True, alpha=0.3)
         ax4.set_xticks(np.arange(0, 25, 4))
-        ax4.tick_params(axis="y", labelcolor="b")
-        ax4_twin.tick_params(axis="y", labelcolor="r")
+        ax4.set_yticks(np.arange(0, 101, 10))
+        ax4.tick_params(axis="y")
 
         # Combine legends
-        lines = line1 + line2
+        lines = line1
         labels = [l.get_label() for l in lines]
         ax4.legend(lines, labels, loc="upper left")
     else:
