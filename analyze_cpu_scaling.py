@@ -180,6 +180,66 @@ def analyze_test_type(df, test_type):
         x_smooth = np.linspace(actual_cpu.min(), actual_cpu.max(), 200)
         y_smooth = f_actual_to_adjusted(x_smooth)
         ax1.plot(x_smooth, y_smooth, "r-", alpha=0.8, label="Logistic fit")
+        
+        # Add piecewise linear regression
+        if len(actual_cpu) > 3:  # Need at least 4 points for piecewise regression
+            # Set breakpoint at exactly 50%
+            breakpoint_cpu = 50.0
+            
+            def piecewise_linear_cpu(x, y0, k1, k2):
+                """
+                Piecewise linear function for CPU mapping
+                y0 is the y value at the breakpoint
+                k1 is the slope before breakpoint
+                k2 is the slope after breakpoint
+                """
+                return np.piecewise(
+                    x,
+                    [x < breakpoint_cpu, x >= breakpoint_cpu],
+                    [
+                        lambda x: y0 + k1 * (x - breakpoint_cpu),
+                        lambda x: y0 + k2 * (x - breakpoint_cpu),
+                    ],
+                )
+            
+            try:
+                # Initial guess: estimate y at breakpoint and slopes
+                idx_near_break = np.argmin(np.abs(actual_cpu - breakpoint_cpu))
+                y_at_break = adjusted_cpu[idx_near_break] if idx_near_break < len(adjusted_cpu) else 50
+                
+                # Estimate initial slopes
+                before_break = actual_cpu <= breakpoint_cpu
+                after_break = actual_cpu > breakpoint_cpu
+                
+                if np.sum(before_break) > 1 and np.sum(after_break) > 1:
+                    # Fit separate linear regressions for initial slope estimates
+                    k1_init = np.polyfit(actual_cpu[before_break], adjusted_cpu[before_break], 1)[0]
+                    k2_init = np.polyfit(actual_cpu[after_break], adjusted_cpu[after_break], 1)[0]
+                else:
+                    # Fallback if not enough points
+                    k1_init = 1.0
+                    k2_init = 1.0
+                
+                # Fit the piecewise linear model
+                params_pw, _ = optimize.curve_fit(
+                    piecewise_linear_cpu,
+                    actual_cpu,
+                    adjusted_cpu,
+                    p0=[y_at_break, k1_init, k2_init],
+                    bounds=([0, -5, -5], [100, 5, 5]),
+                )
+                
+                # Generate smooth curve for plotting
+                y_piecewise = piecewise_linear_cpu(x_smooth, *params_pw)
+                ax1.plot(x_smooth, y_piecewise, "g--", alpha=0.8, 
+                        label="Piecewise Linear (break: 50%)", linewidth=2)
+                
+                # Add vertical line at breakpoint
+                ax1.axvline(x=breakpoint_cpu, color="gray", linestyle=":", alpha=0.3, linewidth=1)
+                
+            except Exception as e:
+                print(f"Warning: Piecewise linear regression failed for Plot 1: {e}")
+    
     ax1.plot([0, 100], [0, 100], "k--", alpha=0.3, label="Linear reference")
     ax1.set_xlabel("Actual CPU Utilization (%)")
     ax1.set_ylabel("Adjusted CPU Utilization (% of max Bogo ops)")
