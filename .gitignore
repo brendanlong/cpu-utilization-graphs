@@ -1,5 +1,7 @@
 /credentials
 stress_test_results_*
+cpu_utilization_analysis*
+cpu_utilization_mapping*.csv
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
