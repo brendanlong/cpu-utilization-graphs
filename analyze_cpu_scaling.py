@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import optimize
 import warnings
+import sys
 
 warnings.filterwarnings("ignore")
 
@@ -515,7 +516,7 @@ def analyze_test_type(df, test_type):
 # Main execution
 if __name__ == "__main__":
     # Read the CSV file
-    df = pl.read_csv("stress_test_results_20250827_104138.csv")
+    df = pl.read_csv(sys.argv[1])
 
     # Get unique test types
     test_types = df["test_type"].unique().sort()
