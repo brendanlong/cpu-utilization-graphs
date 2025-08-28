@@ -220,6 +220,9 @@ def run_stress_test(
             cpu_percent = psutil.cpu_percent(interval=0.5)
             if time.time() - start_time > 1:  # Skip first second for warmup
                 cpu_measurements.append(cpu_percent)
+        # Remove the last two measurements since they can include a drop at the end
+        cpu_measurements.pop()
+        cpu_measurements.pop()
 
         # Get process output
         stdout, stderr = process.communicate(timeout=5)
