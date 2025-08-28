@@ -300,6 +300,7 @@ def analyze_test_type(df, test_type):
         workers_data = varying_workers_df.sort("workers")
         workers = workers_data["workers"].to_numpy()
         workers_adjusted = workers_data["adjusted_cpu_utilization"].to_numpy()
+        workers_actual = workers_data["actual_cpu_utilization"].to_numpy()
 
         line1 = ax2.plot(
             workers,
@@ -307,6 +308,15 @@ def analyze_test_type(df, test_type):
             "r-s",
             alpha=0.7,
             label="Adjusted CPU%",
+            markersize=4,
+        )
+
+        line_actual = ax2.plot(
+            workers,
+            workers_actual,
+            "g-o",
+            alpha=0.7,
+            label="Reported CPU%",
             markersize=4,
         )
 
@@ -410,15 +420,15 @@ def analyze_test_type(df, test_type):
                     bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
                 )
 
-                lines = line1 + line2
+                lines = line1 + line_actual + line2
             except Exception as e:
                 print(f"Warning: Piecewise linear regression failed: {e}")
-                lines = line1
+                lines = line1 + line_actual
         else:
-            lines = line1
+            lines = line1 + line_actual
 
         ax2.set_xlabel("Number of Workers")
-        ax2.set_ylabel("Adjusted CPU Utilization (%)")
+        ax2.set_ylabel("CPU Utilization (%)")
         ax2.set_title(f"Performance vs Workers (100% CPU) - {test_type.upper()}")
         ax2.grid(True, alpha=0.3)
         ax2.set_xticks(np.arange(0, 25, 4))
