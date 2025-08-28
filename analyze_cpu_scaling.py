@@ -171,21 +171,21 @@ def analyze_test_type(df, test_type):
         f_actual_to_adjusted = np.poly1d(coeffs)
 
     # Create the visualization
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
     # Plot 1: Actual vs Adjusted CPU Utilization
-    ax1 = axes[0, 0]
+    ax1 = axes[0]
     ax1.scatter(actual_cpu, adjusted_cpu, alpha=0.6, s=50, label="Data points")
     if len(actual_cpu) > 1:
         x_smooth = np.linspace(actual_cpu.min(), actual_cpu.max(), 200)
         y_smooth = f_actual_to_adjusted(x_smooth)
         ax1.plot(x_smooth, y_smooth, "r-", alpha=0.8, label="Logistic fit")
-        
+
         # Add piecewise linear regression
         if len(actual_cpu) > 3:  # Need at least 4 points for piecewise regression
             # Set breakpoint at exactly 50%
             breakpoint_cpu = 50.0
-            
+
             def piecewise_linear_cpu(x, y0, k1, k2):
                 """
                 Piecewise linear function for CPU mapping
@@ -201,25 +201,33 @@ def analyze_test_type(df, test_type):
                         lambda x: y0 + k2 * (x - breakpoint_cpu),
                     ],
                 )
-            
+
             try:
                 # Initial guess: estimate y at breakpoint and slopes
                 idx_near_break = np.argmin(np.abs(actual_cpu - breakpoint_cpu))
-                y_at_break = adjusted_cpu[idx_near_break] if idx_near_break < len(adjusted_cpu) else 50
-                
+                y_at_break = (
+                    adjusted_cpu[idx_near_break]
+                    if idx_near_break < len(adjusted_cpu)
+                    else 50
+                )
+
                 # Estimate initial slopes
                 before_break = actual_cpu <= breakpoint_cpu
                 after_break = actual_cpu > breakpoint_cpu
-                
+
                 if np.sum(before_break) > 1 and np.sum(after_break) > 1:
                     # Fit separate linear regressions for initial slope estimates
-                    k1_init = np.polyfit(actual_cpu[before_break], adjusted_cpu[before_break], 1)[0]
-                    k2_init = np.polyfit(actual_cpu[after_break], adjusted_cpu[after_break], 1)[0]
+                    k1_init = np.polyfit(
+                        actual_cpu[before_break], adjusted_cpu[before_break], 1
+                    )[0]
+                    k2_init = np.polyfit(
+                        actual_cpu[after_break], adjusted_cpu[after_break], 1
+                    )[0]
                 else:
                     # Fallback if not enough points
                     k1_init = 1.0
                     k2_init = 1.0
-                
+
                 # Fit the piecewise linear model
                 params_pw, _ = optimize.curve_fit(
                     piecewise_linear_cpu,
@@ -228,18 +236,30 @@ def analyze_test_type(df, test_type):
                     p0=[y_at_break, k1_init, k2_init],
                     bounds=([0, -5, -5], [100, 5, 5]),
                 )
-                
+
                 # Generate smooth curve for plotting
                 y_piecewise = piecewise_linear_cpu(x_smooth, *params_pw)
-                ax1.plot(x_smooth, y_piecewise, "g--", alpha=0.8, 
-                        label="Piecewise Linear (break: 50%)", linewidth=2)
-                
+                ax1.plot(
+                    x_smooth,
+                    y_piecewise,
+                    "g--",
+                    alpha=0.8,
+                    label="Piecewise Linear (break: 50%)",
+                    linewidth=2,
+                )
+
                 # Add vertical line at breakpoint
-                ax1.axvline(x=breakpoint_cpu, color="gray", linestyle=":", alpha=0.3, linewidth=1)
-                
+                ax1.axvline(
+                    x=breakpoint_cpu,
+                    color="gray",
+                    linestyle=":",
+                    alpha=0.3,
+                    linewidth=1,
+                )
+
             except Exception as e:
                 print(f"Warning: Piecewise linear regression failed for Plot 1: {e}")
-    
+
     ax1.plot([0, 100], [0, 100], "k--", alpha=0.3, label="Linear reference")
     ax1.set_xlabel("Actual CPU Utilization (%)")
     ax1.set_ylabel("Adjusted CPU Utilization (% of max Bogo ops)")
@@ -251,55 +271,14 @@ def analyze_test_type(df, test_type):
     ax1.set_xticks(np.arange(0, 101, 10))
     ax1.set_yticks(np.arange(0, 101, 10))
 
-    # Plot 2: CPU Target vs Both Utilizations
-    ax2 = axes[0, 1]
-    cpu_target = mapping_df["cpu_target"].to_numpy()
-    ax2.plot(
-        cpu_target,
-        mapping_df["actual_cpu_utilization"].to_numpy(),
-        "b-o",
-        alpha=0.7,
-        label="Actual CPU%",
-        markersize=3,
-    )
-    ax2.plot(
-        cpu_target,
-        mapping_df["adjusted_cpu_utilization"].to_numpy(),
-        "r-s",
-        alpha=0.7,
-        label="Adjusted CPU%",
-        markersize=3,
-    )
-    ax2.plot(cpu_target, cpu_target, "k--", alpha=0.3, label="Target CPU%")
-    ax2.set_xlabel("Target CPU (%)")
-    ax2.set_ylabel("Utilization (%)")
-    ax2.set_title(f"Target vs Actual vs Adjusted - {test_type.upper()}")
-    ax2.grid(True, alpha=0.3)
-    ax2.legend()
-    ax2.set_xlim(0, 105)
-    ax2.set_ylim(0, 105)
-    ax2.set_xticks(np.arange(0, 101, 10))
-    ax2.set_yticks(np.arange(0, 101, 10))
-
-    # Plot 3: Bogo ops vs CPU Target
-    ax3 = axes[1, 0]
-    bogo_ops = mapping_df["bogo_ops_per_sec"].to_numpy()
-    ax3.plot(cpu_target, bogo_ops, "g-^", alpha=0.7, markersize=3)
-    ax3.set_xlabel("Target CPU (%)")
-    ax3.set_ylabel("Bogo Operations per Second")
-    ax3.set_title(f"Bogo Operations vs Target CPU - {test_type.upper()}")
-    ax3.grid(True, alpha=0.3)
-    ax3.set_xlim(0, 105)
-    ax3.set_xticks(np.arange(0, 101, 10))
-
-    # Plot 4: Varying Workers Dataset (at 100% CPU)
-    ax4 = axes[1, 1]
+    # Plot 2: Varying Workers Dataset (at 100% CPU)
+    ax2 = axes[1]
     if len(varying_workers_df) > 0:
         workers_data = varying_workers_df.sort("workers")
         workers = workers_data["workers"].to_numpy()
         workers_adjusted = workers_data["adjusted_cpu_utilization"].to_numpy()
 
-        line1 = ax4.plot(
+        line1 = ax2.plot(
             workers,
             workers_adjusted,
             "r-s",
@@ -373,7 +352,7 @@ def analyze_test_type(df, test_type):
                 x_smooth = np.linspace(workers.min(), workers.max(), 200)
                 y_piecewise = piecewise_linear(x_smooth, *params)
 
-                line2 = ax4.plot(
+                line2 = ax2.plot(
                     x_smooth,
                     y_piecewise,
                     "b--",
@@ -383,7 +362,7 @@ def analyze_test_type(df, test_type):
                 )
 
                 # Add vertical line at breakpoint
-                ax4.axvline(x=breakpoint, color="gray", linestyle=":", alpha=0.5)
+                ax2.axvline(x=breakpoint, color="gray", linestyle=":", alpha=0.5)
 
                 # Calculate R-squared
                 y_pred = piecewise_linear(workers, *params)
@@ -397,11 +376,11 @@ def analyze_test_type(df, test_type):
                 text_str += f"Slope 1: {params[1]:.2f}\n"
                 text_str += f"Slope 2: {params[2]:.2f}\n"
                 text_str += f"R² = {r_squared:.4f}"
-                ax4.text(
+                ax2.text(
                     0.95,
                     0.05,
                     text_str,
-                    transform=ax4.transAxes,
+                    transform=ax2.transAxes,
                     fontsize=9,
                     verticalalignment="bottom",
                     horizontalalignment="right",
@@ -415,27 +394,27 @@ def analyze_test_type(df, test_type):
         else:
             lines = line1
 
-        ax4.set_xlabel("Number of Workers")
-        ax4.set_ylabel("Adjusted CPU Utilization (%)")
-        ax4.set_title(f"Performance vs Workers (100% CPU) - {test_type.upper()}")
-        ax4.grid(True, alpha=0.3)
-        ax4.set_xticks(np.arange(0, 25, 4))
-        ax4.set_yticks(np.arange(0, 101, 10))
-        ax4.tick_params(axis="y")
+        ax2.set_xlabel("Number of Workers")
+        ax2.set_ylabel("Adjusted CPU Utilization (%)")
+        ax2.set_title(f"Performance vs Workers (100% CPU) - {test_type.upper()}")
+        ax2.grid(True, alpha=0.3)
+        ax2.set_xticks(np.arange(0, 25, 4))
+        ax2.set_yticks(np.arange(0, 101, 10))
+        ax2.tick_params(axis="y")
 
         # Combine legends
         labels = [line.get_label() for line in lines]
-        ax4.legend(lines, labels, loc="upper left")
+        ax2.legend(lines, labels, loc="upper left")
     else:
-        ax4.text(
+        ax2.text(
             0.5,
             0.5,
             "No data for varying workers at 100% CPU",
             ha="center",
             va="center",
-            transform=ax4.transAxes,
+            transform=ax2.transAxes,
         )
-        ax4.set_title(f"Performance vs Workers - {test_type.upper()} (No Data)")
+        ax2.set_title(f"Performance vs Workers - {test_type.upper()} (No Data)")
 
     plt.suptitle(
         f"CPU Utilization Analysis - {test_type.upper()} Test Method",
@@ -452,6 +431,9 @@ def analyze_test_type(df, test_type):
 
     # Export the mapping to CSV for further use
     if len(actual_cpu) > 0:
+        cpu_target = mapping_df["cpu_target"].to_numpy()
+        bogo_ops = mapping_df["bogo_ops_per_sec"].to_numpy()
+
         mapping_export = pl.DataFrame(
             {
                 "cpu_target": cpu_target,
