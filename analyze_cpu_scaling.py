@@ -261,7 +261,7 @@ def analyze_test_type(df, test_type):
                 print(f"Warning: Piecewise linear regression failed for Plot 1: {e}")
 
     ax1.plot([0, 100], [0, 100], "k--", alpha=0.3, label="Linear reference")
-    ax1.set_xlabel("Actual CPU Utilization (%)")
+    ax1.set_xlabel("Reported CPU Utilization (%)")
     ax1.set_ylabel("Adjusted CPU Utilization (% of max Bogo ops)")
     ax1.set_title(f"CPU Utilization Mapping - {test_type.upper()} (24 workers)")
     ax1.grid(True, alpha=0.3)
