@@ -248,6 +248,113 @@ def analyze_test_type(df, test_type):
             markersize=4,
         )
 
+        # Piecewise linear regression
+        if len(workers) > 3:  # Need at least 4 points for piecewise regression
+            # Determine breakpoint from data
+            max_workers = type_df["workers"].max()
+            breakpoint = max_workers / 2.0
+
+            print(
+                f"  Max workers in dataset: {max_workers}, breakpoint at {breakpoint}"
+            )
+
+            def piecewise_linear(x, y0, k1, k2):
+                """
+                Piecewise linear function
+                y0 is the y value at the breakpoint
+                k1 is the slope before breakpoint
+                k2 is the slope after breakpoint
+                """
+                return np.piecewise(
+                    x,
+                    [x < breakpoint, x >= breakpoint],
+                    [
+                        lambda x: y0 + k1 * (x - breakpoint),
+                        lambda x: y0 + k2 * (x - breakpoint),
+                    ],
+                )
+
+            try:
+                # Initial guess: estimate y at breakpoint and slopes
+                idx_near_break = np.argmin(np.abs(workers - breakpoint))
+                y_at_break = (
+                    workers_adjusted[idx_near_break]
+                    if idx_near_break < len(workers_adjusted)
+                    else 50
+                )
+
+                # Estimate initial slopes
+                before_break = workers <= breakpoint
+                after_break = workers > breakpoint
+
+                if np.sum(before_break) > 1 and np.sum(after_break) > 1:
+                    # Fit separate linear regressions for initial slope estimates
+                    k1_init = np.polyfit(
+                        workers[before_break], workers_adjusted[before_break], 1
+                    )[0]
+                    k2_init = np.polyfit(
+                        workers[after_break], workers_adjusted[after_break], 1
+                    )[0]
+                else:
+                    # Fallback if not enough points
+                    k1_init = 4.0
+                    k2_init = 0.5
+
+                # Fit the piecewise linear model
+                params, _ = optimize.curve_fit(
+                    piecewise_linear,
+                    workers,
+                    workers_adjusted,
+                    p0=[y_at_break, k1_init, k2_init],
+                    bounds=([0, -10, -10], [100, 10, 10]),
+                )
+
+                # Generate smooth curve for plotting
+                x_smooth = np.linspace(workers.min(), workers.max(), 200)
+                y_piecewise = piecewise_linear(x_smooth, *params)
+
+                line2 = ax4.plot(
+                    x_smooth,
+                    y_piecewise,
+                    "b--",
+                    alpha=0.8,
+                    label=f"Piecewise Linear (breakpoint: {breakpoint:.0f})",
+                    linewidth=2,
+                )
+
+                # Add vertical line at breakpoint
+                ax4.axvline(x=breakpoint, color="gray", linestyle=":", alpha=0.5)
+
+                # Calculate R-squared
+                y_pred = piecewise_linear(workers, *params)
+                residuals = workers_adjusted - y_pred
+                ss_res = np.sum(residuals**2)
+                ss_tot = np.sum((workers_adjusted - np.mean(workers_adjusted)) ** 2)
+                r_squared = 1 - (ss_res / ss_tot)
+
+                # Add text annotation with fit parameters
+                text_str = f"Breakpoint: {breakpoint:.0f} workers\n"
+                text_str += f"Slope 1: {params[1]:.2f}\n"
+                text_str += f"Slope 2: {params[2]:.2f}\n"
+                text_str += f"R² = {r_squared:.4f}"
+                ax4.text(
+                    0.95,
+                    0.05,
+                    text_str,
+                    transform=ax4.transAxes,
+                    fontsize=9,
+                    verticalalignment="bottom",
+                    horizontalalignment="right",
+                    bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+                )
+
+                lines = line1 + line2
+            except Exception as e:
+                print(f"Warning: Piecewise linear regression failed: {e}")
+                lines = line1
+        else:
+            lines = line1
+
         ax4.set_xlabel("Number of Workers")
         ax4.set_ylabel("Adjusted CPU Utilization (%)")
         ax4.set_title(f"Performance vs Workers (100% CPU) - {test_type.upper()}")
@@ -257,8 +364,7 @@ def analyze_test_type(df, test_type):
         ax4.tick_params(axis="y")
 
         # Combine legends
-        lines = line1
-        labels = [l.get_label() for l in lines]
+        labels = [line.get_label() for line in lines]
         ax4.legend(lines, labels, loc="upper left")
     else:
         ax4.text(
