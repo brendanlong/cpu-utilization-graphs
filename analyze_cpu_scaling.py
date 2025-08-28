@@ -257,6 +257,29 @@ def analyze_test_type(df, test_type):
                     linewidth=1,
                 )
 
+                # Calculate R-squared for piecewise linear fit
+                y_pred_pw = piecewise_linear_cpu(actual_cpu, *params_pw)
+                residuals_pw = adjusted_cpu - y_pred_pw
+                ss_res_pw = np.sum(residuals_pw**2)
+                ss_tot_pw = np.sum((adjusted_cpu - np.mean(adjusted_cpu)) ** 2)
+                r_squared_pw = 1 - (ss_res_pw / ss_tot_pw)
+
+                # Add text annotation with fit parameters
+                text_str = f"Breakpoint: {breakpoint_cpu:.0f}% CPU\n"
+                text_str += f"Slope 1: {params_pw[1]:.2f}\n"
+                text_str += f"Slope 2: {params_pw[2]:.2f}\n"
+                text_str += f"R² = {r_squared_pw:.4f}"
+                ax1.text(
+                    0.95,
+                    0.05,
+                    text_str,
+                    transform=ax1.transAxes,
+                    fontsize=9,
+                    verticalalignment="bottom",
+                    horizontalalignment="right",
+                    bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+                )
+
             except Exception as e:
                 print(f"Warning: Piecewise linear regression failed for Plot 1: {e}")
 
