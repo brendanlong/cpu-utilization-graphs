@@ -3,6 +3,7 @@ stress_test_results_*
 clock_speed_vs_cpu_all.png
 cpu_utilization_analysis*
 cpu_utilization_mapping*.csv
+cpu_utilization_combined_adjusted.png
 
 # LibreOffice lock files
 .~*.csv#

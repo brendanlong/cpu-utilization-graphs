@@ -527,6 +527,84 @@ if __name__ == "__main__":
     for test_type in test_types:
         analyze_test_type(df, test_type)
 
+    # Create combined Adjusted vs Reported CPU utilization plot
+    print("\n" + "=" * 80)
+    print("CREATING COMBINED ADJUSTED VS REPORTED CPU UTILIZATION PLOT")
+    print("=" * 80)
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+
+    # Define colors for different test types
+    test_colors = {
+        "cpu": "blue",
+        "int64": "green",
+        "double": "red",
+        "matrixprod": "purple",
+    }
+
+    # Plot data for each test type
+    for test_type in test_types:
+        type_df = df.filter(pl.col("test_type") == test_type)
+
+        # Filter for 24 workers (constant workers dataset)
+        varying_cpu_df = type_df.filter(pl.col("workers") == 24)
+
+        if len(varying_cpu_df) > 0:
+            # Find max bogo_ops for this test type
+            max_bogo_ops = type_df.filter(
+                (pl.col("cpu_target") == 100) & (pl.col("workers") == 24)
+            )["bogo_ops_per_sec"].max()
+
+            if max_bogo_ops and max_bogo_ops > 0:
+                # Calculate adjusted CPU utilization
+                varying_cpu_df = varying_cpu_df.with_columns(
+                    (pl.col("bogo_ops_per_sec") / max_bogo_ops * 100).alias(
+                        "adjusted_cpu_utilization"
+                    )
+                )
+
+                actual_cpu = varying_cpu_df["actual_cpu_utilization"].to_numpy()
+                adjusted_cpu = varying_cpu_df["adjusted_cpu_utilization"].to_numpy()
+
+                # Remove NaN values
+                valid_mask = ~np.isnan(actual_cpu) & ~np.isnan(adjusted_cpu)
+                actual_cpu = actual_cpu[valid_mask]
+                adjusted_cpu = adjusted_cpu[valid_mask]
+
+                if len(actual_cpu) > 0:
+                    color = test_colors.get(test_type, "gray")
+                    ax.scatter(
+                        actual_cpu,
+                        adjusted_cpu,
+                        alpha=0.6,
+                        s=40,
+                        label=f"{test_type.upper()} (n={len(actual_cpu)})",
+                        color=color,
+                    )
+
+    # Add diagonal reference line (y=x)
+    ax.plot([0, 100], [0, 100], "k--", alpha=0.5, linewidth=1, label="Linear (y=x)")
+
+    ax.set_xlabel("Reported CPU Utilization (%)", fontsize=12)
+    ax.set_ylabel("Adjusted CPU Utilization (% of max Bogo ops)", fontsize=12)
+    ax.set_title(
+        "Adjusted vs Reported CPU Utilization - All Test Types (24 workers)",
+        fontsize=14,
+    )
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="upper left")
+    ax.set_xlim(0, 100)
+    ax.set_ylim(0, 100)
+    ax.set_xticks(np.arange(0, 101, 10))
+    ax.set_yticks(np.arange(0, 101, 10))
+
+    plt.tight_layout()
+    combined_filename = "cpu_utilization_combined_adjusted.png"
+    plt.savefig(combined_filename, dpi=150, bbox_inches="tight")
+    plt.close()
+
+    print(f"Combined adjusted CPU utilization plot saved to: {combined_filename}")
+
     # Create combined clock speed scatterplot if data exists
     if "max_clock_speed_mhz" in df.columns:
         fig, ax = plt.subplots(1, 1, figsize=(12, 8))
@@ -593,7 +671,6 @@ if __name__ == "__main__":
 
         # Set axis limits - y-axis starts at 0
         ax.set_xlim(0, 100)
-        ax.set_ylim(0, None)  # Start at 0, auto-scale top
         ax.set_xticks(np.arange(0, 101, 10))
 
         plt.tight_layout()
