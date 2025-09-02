@@ -1,13 +1,14 @@
 # CPU Utilization and Performance Testing with stress-ng
 
-This repository contains Python scripts for running systematic CPU stress tests using stress-ng and analyzing the relationship between CPU utilization and performance (measured in Bogo operations per second).
+This repository contains Python scripts for running systematic CPU stress tests using stress-ng and analyzing the relationship between reported CPU utilization and actual performance (measured in Bogo operations per second).
 
 ## Overview
 
-The scripts run stress-ng with varying CPU utilization targets (1-100%) across different stress test types, measuring:
-- Target vs actual CPU utilization
-- Bogo operations per second
-- Performance efficiency (Bogo OPS per CPU %)
+The scripts run stress-ng tests to explore:
+- How reported CPU utilization relates to actual computational work performed
+- Performance scaling with different numbers of worker threads
+- Clock speed behavior under various load conditions
+- Non-linear relationships between CPU utilization metrics
 
 ## Requirements
 
@@ -19,25 +20,19 @@ The scripts run stress-ng with varying CPU utilization targets (1-100%) across d
 
 ```bash
 # Ubuntu/Debian
-sudo apt-get install stress-ng
-
-# Fedora/RHEL
-sudo dnf install stress-ng
-
-# macOS
-brew install stress-ng
+apt-get install stress-ng
 ```
 
 ### Python Dependencies
 
 Install using uv:
 ```bash
-uv add psutil pandas matplotlib seaborn numpy
+uv sync
 ```
 
 Or with pip:
 ```bash
-pip install -r requirements.txt
+pip install psutil tqdm polars matplotlib numpy scipy
 ```
 
 ## Usage
@@ -45,93 +40,93 @@ pip install -r requirements.txt
 ### 1. Run Stress Tests
 
 ```bash
-sudo python run_stress_tests.py
+python run_stress_tests.py [options]
 ```
 
-This will:
-- Disable CPU power saving modes (governor set to "performance")
-- Run stress tests with CPU targets: 1%, 6%, 11%, ..., 96%, 100%
-- Test types: cpu, int64, fp-math, cache, stream
-- Each test runs for 10 seconds
-- Save results to `stress_test_results_YYYYMMDD_HHMMSS.csv`
-- Restore original power settings when complete
+The script will:
+- Optionally disable CPU power saving modes for consistent results
+- Run two types of test configurations:
+  - Variable CPU utilization (1-100%) with fixed worker count
+  - Variable worker count at 100% CPU utilization
+- Measure actual CPU utilization, clock speeds, and Bogo operations
+- Save results to CSV with timestamps
+- Display progress with real-time metrics
 
-**Note:** The script requires sudo for CPU power management. Total runtime is approximately 15-20 minutes.
-
-### 2. Generate Graphs and Analysis
+### 2. Analyze CPU Scaling
 
 ```bash
-python plot_results.py stress_test_results_YYYYMMDD_HHMMSS.csv
+python analyze_cpu_scaling.py stress_test_results_YYYYMMDD_HHMMSS.csv
 ```
 
-This generates:
-- `*_all_tests.png` - Bogo OPS vs CPU utilization for all test types
-- `*_cpu_accuracy.png` - Target vs actual CPU utilization
-- `*_efficiency.png` - Efficiency curves (Bogo OPS per CPU %)
-- `*_heatmap.png` - Performance heatmap by test type and CPU target
-- `*_summary.txt` - Statistical summary and analysis
+This script performs detailed analysis of the stress test results:
+
+#### Generated Outputs:
+
+For each test type (cpu, int64, double, matrixprod):
+- `cpu_utilization_analysis_{test_type}.png` - Dual plot showing:
+  - Left: Relationship between reported and adjusted CPU utilization
+  - Right: Performance scaling with worker count
+- `cpu_utilization_mapping_{test_type}.csv` - Detailed mapping data
+
+Combined visualizations:
+- `cpu_utilization_combined_adjusted.png` - All test types on one plot showing adjusted vs reported CPU
+- `clock_speed_vs_cpu_all.png` - Clock speed behavior under different loads (if clock speed data available)
+
+#### Analysis Features:
+- Calculates "adjusted" CPU utilization based on actual work performed (Bogo operations)
+- Fits piecewise linear models to identify performance breakpoints
+- Shows non-linear relationships between reported CPU % and actual computational work
+- Identifies scaling limits and efficiency changes
 
 ## Output Files
 
 ### CSV Format
 
-The results CSV contains:
+The stress test results CSV contains:
 - `timestamp` - ISO format timestamp
-- `test_type` - Type of stress test (cpu, int64, fp-math, cache, stream)
+- `test_type` - Type of stress test (cpu, int64, double, matrixprod, cache, stream)
 - `cpu_target` - Target CPU utilization percentage
 - `duration` - Test duration in seconds
 - `workers` - Number of CPU workers
 - `actual_cpu_utilization` - Measured CPU usage percentage
+- `avg_clock_speed_mhz` - Average CPU clock speed during test
+- `max_clock_speed_mhz` - Maximum CPU clock speed during test
 - `bogo_ops_per_sec` - Bogo operations per second
 - `total_bogo_ops` - Total bogo operations
 - `error` - Any error messages (null if successful)
 
-### Visualizations
+### Analysis Outputs
 
-1. **Performance Plot** - Shows how Bogo OPS varies with CPU utilization for each test type
-2. **CPU Accuracy** - Compares target vs actual CPU utilization
-3. **Efficiency Plot** - Shows performance per unit of CPU usage
-4. **Heatmap** - 2D visualization of performance across all parameters
+The analysis script generates:
+- Individual analysis plots for each test type showing both CPU scaling and worker scaling
+- Combined comparison plots across all test types
+- CSV mapping files with scaling factors and adjusted utilization values
+- Console output with detailed statistics and regression parameters
 
-## Test Types
+## Available Test Types
 
 - `cpu` - General CPU stress test
-- `int64` - 64-bit integer operations
-- `fp-math` - Floating point mathematics
+- `int64` - 64-bit integer operations  
+- `double` - Double precision floating point operations
+- `matrixprod` - Matrix multiplication operations
 - `cache` - Cache thrashing (L3 cache)
 - `stream` - Memory bandwidth test
 
 ## Power Management
 
-The script automatically manages CPU power settings:
+The run_stress_tests.py script can optionally manage CPU power settings:
 1. Saves current CPU governor and turbo boost settings
 2. Sets all CPUs to "performance" governor
 3. Disables Intel Turbo Boost (if available)
 4. Restores original settings after tests complete
 
-This ensures consistent performance measurements across all tests.
+This ensures consistent performance measurements. Use `--no-power-management` to skip this.
 
-## Troubleshooting
+## Key Insights
 
-### Permission Denied
-- Run with `sudo` for CPU power management access
-
-### stress-ng not found
-- Install stress-ng using your package manager
-
-### Import errors
-- Ensure all Python dependencies are installed
-- Check you're using the correct Python environment
-
-### No data in graphs
-- Check the CSV file for error messages
-- Ensure stress-ng completed successfully
-- Verify CPU utilization measurements are non-zero
-
-## Example Results
-
-The graphs will show:
-- Different test types have different performance characteristics
-- Some tests scale linearly with CPU, others show diminishing returns
-- Cache and memory tests may show different patterns than compute tests
-- Efficiency often decreases at higher CPU utilization due to thermal/power limits
+The analysis reveals:
+- Reported CPU utilization often doesn't linearly correspond to actual computational work
+- Performance scaling with worker threads typically shows diminishing returns
+- Different test types exhibit different scaling characteristics
+- Clock speed throttling affects high-utilization scenarios
+- Piecewise linear models often better describe the relationships than simple linear fits
