@@ -13,15 +13,12 @@ from datetime import datetime
 from typing import Dict
 import signal
 from tqdm import tqdm
+import argparse
 
-# Test configuration
-STRESS_TESTS = ["cpu", "int64", "double", "matrixprod"]  # "cache", "stream"]
-CPU_TARGETS = list(range(1, 101))
-TEST_DURATION = 10  # seconds
-WORKERS = os.cpu_count()  # Number of CPU cores
-FIXED_WORKER_COUNTS = list(
-    range(1, os.cpu_count() + 1)
-)  # Test with 1 to num_cores workers
+# Default test configuration
+AVAILABLE_TESTS = ["cpu", "int64", "double", "matrixprod", "cache", "stream"]
+DEFAULT_TESTS = ["cpu", "int64", "double", "matrixprod"]
+DEFAULT_TEST_DURATION = 10  # seconds
 
 
 class PowerManager:
@@ -295,8 +292,189 @@ def run_stress_test(
     return result
 
 
+def parse_arguments():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Run stress-ng tests with varying CPU utilization targets and collect performance metrics.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run all default tests with default increments
+  %(prog)s
+  
+  # Run only cpu and int64 tests
+  %(prog)s --tests cpu int64
+  
+  # Run all available tests
+  %(prog)s --tests all
+  
+  # Run tests with CPU utilization from 10%% to 100%% in steps of 10
+  %(prog)s --cpu-start 10 --cpu-end 100 --cpu-step 10
+  
+  # Run tests with 1, 4, 8, 16 workers
+  %(prog)s --workers 1 4 8 16
+  
+  # Run tests with workers from 1 to 8 in steps of 2
+  %(prog)s --worker-start 1 --worker-end 8 --worker-step 2
+  
+  # Disable variable worker tests (only run CPU utilization tests)
+  %(prog)s --no-worker-tests
+  
+  # Disable CPU utilization tests (only run worker scaling tests)
+  %(prog)s --no-cpu-tests
+        """
+    )
+    
+    # Test selection
+    parser.add_argument(
+        "--tests",
+        nargs="+",
+        default=DEFAULT_TESTS,
+        help=f"Tests to run. Available: {', '.join(AVAILABLE_TESTS)}, 'all'. Default: {' '.join(DEFAULT_TESTS)}"
+    )
+    
+    # CPU utilization range arguments
+    parser.add_argument(
+        "--cpu-start",
+        type=int,
+        default=1,
+        help="Starting CPU utilization percentage (default: 1)"
+    )
+    parser.add_argument(
+        "--cpu-end",
+        type=int,
+        default=100,
+        help="Ending CPU utilization percentage (default: 100)"
+    )
+    parser.add_argument(
+        "--cpu-step",
+        type=int,
+        default=1,
+        help="CPU utilization increment step (default: 1)"
+    )
+    parser.add_argument(
+        "--cpu-targets",
+        nargs="+",
+        type=int,
+        help="Specific CPU utilization targets (overrides --cpu-start/end/step)"
+    )
+    
+    # Worker count arguments
+    parser.add_argument(
+        "--worker-start",
+        type=int,
+        default=1,
+        help="Starting number of workers (default: 1)"
+    )
+    parser.add_argument(
+        "--worker-end",
+        type=int,
+        default=os.cpu_count(),
+        help=f"Ending number of workers (default: {os.cpu_count()} - number of CPU cores)"
+    )
+    parser.add_argument(
+        "--worker-step",
+        type=int,
+        default=1,
+        help="Worker count increment step (default: 1)"
+    )
+    parser.add_argument(
+        "--workers",
+        nargs="+",
+        type=int,
+        help="Specific worker counts to test (overrides --worker-start/end/step)"
+    )
+    parser.add_argument(
+        "--fixed-workers",
+        type=int,
+        default=os.cpu_count(),
+        help=f"Number of workers for CPU utilization tests (default: {os.cpu_count()})"
+    )
+    
+    # Test duration
+    parser.add_argument(
+        "--duration",
+        type=int,
+        default=DEFAULT_TEST_DURATION,
+        help=f"Test duration in seconds (default: {DEFAULT_TEST_DURATION})"
+    )
+    
+    # Test type selection
+    parser.add_argument(
+        "--no-cpu-tests",
+        action="store_true",
+        help="Skip variable CPU utilization tests"
+    )
+    parser.add_argument(
+        "--no-worker-tests",
+        action="store_true",
+        help="Skip variable worker count tests"
+    )
+    
+    # Power management
+    parser.add_argument(
+        "--no-power-management",
+        action="store_true",
+        help="Don't disable power saving modes"
+    )
+    
+    # Output file
+    parser.add_argument(
+        "--output",
+        type=str,
+        help="Output CSV file name (default: stress_test_results_TIMESTAMP.csv)"
+    )
+    
+    args = parser.parse_args()
+    
+    # Process test selection
+    if 'all' in args.tests:
+        args.tests = AVAILABLE_TESTS
+    else:
+        # Validate test names
+        invalid_tests = [t for t in args.tests if t not in AVAILABLE_TESTS]
+        if invalid_tests:
+            parser.error(f"Invalid tests: {', '.join(invalid_tests)}. Available: {', '.join(AVAILABLE_TESTS)}")
+    
+    # Process CPU targets
+    if args.cpu_targets:
+        args.cpu_targets = sorted(set(args.cpu_targets))  # Remove duplicates and sort
+    else:
+        args.cpu_targets = list(range(args.cpu_start, args.cpu_end + 1, args.cpu_step))
+    
+    # Validate CPU targets
+    invalid_cpu = [c for c in args.cpu_targets if c < 1 or c > 100]
+    if invalid_cpu:
+        parser.error(f"CPU targets must be between 1 and 100: {invalid_cpu}")
+    
+    # Process worker counts
+    if args.workers:
+        args.workers = sorted(set(args.workers))  # Remove duplicates and sort
+    else:
+        args.workers = list(range(args.worker_start, args.worker_end + 1, args.worker_step))
+    
+    # Validate worker counts
+    max_workers = os.cpu_count() * 2  # Allow up to 2x CPU count
+    invalid_workers = [w for w in args.workers if w < 1 or w > max_workers]
+    if invalid_workers:
+        parser.error(f"Worker counts must be between 1 and {max_workers}: {invalid_workers}")
+    
+    # Validate fixed workers
+    if args.fixed_workers < 1 or args.fixed_workers > max_workers:
+        parser.error(f"Fixed workers must be between 1 and {max_workers}")
+    
+    # Check that at least one test type is enabled
+    if args.no_cpu_tests and args.no_worker_tests:
+        parser.error("Cannot disable both CPU and worker tests")
+    
+    return args
+
+
 def main():
     """Main test runner."""
+    # Parse command-line arguments
+    args = parse_arguments()
+    
     # Check if stress-ng is installed
     try:
         subprocess.run(["stress-ng", "--version"], check=True, capture_output=True)
@@ -306,12 +484,15 @@ def main():
         print("  Fedora/RHEL: sudo dnf install stress-ng")
         sys.exit(1)
 
-    # Initialize power manager
-    power_manager = PowerManager()
+    # Initialize power manager if needed
+    power_manager = PowerManager() if not args.no_power_management else None
 
     # Results file
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = f"stress_test_results_{timestamp}.csv"
+    if args.output:
+        results_file = args.output
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        results_file = f"stress_test_results_{timestamp}.csv"
 
     # CSV headers
     headers = [
@@ -331,32 +512,49 @@ def main():
     results = []
 
     try:
-        # Disable power saving
-        power_manager.disable_power_saving()
+        # Disable power saving if enabled
+        if power_manager:
+            power_manager.disable_power_saving()
 
         # Wait for system to stabilize
         print("Waiting for system to stabilize...")
         time.sleep(2)
 
+        # Print test configuration
+        print(f"\nTest Configuration:")
+        print(f"  Tests: {', '.join(args.tests)}")
+        if not args.no_cpu_tests:
+            print(f"  CPU targets: {len(args.cpu_targets)} values from {min(args.cpu_targets)}% to {max(args.cpu_targets)}%")
+            print(f"  Fixed workers for CPU tests: {args.fixed_workers}")
+        if not args.no_worker_tests:
+            print(f"  Worker counts: {', '.join(map(str, args.workers))}")
+        print(f"  Test duration: {args.duration} seconds")
+        print()
+
         # Run tests
-        # Calculate total tests: variable CPU tests + fixed worker tests
-        variable_cpu_tests = len(STRESS_TESTS) * len(CPU_TARGETS)
-        fixed_worker_tests = len(STRESS_TESTS) * len(FIXED_WORKER_COUNTS)
-        total_tests = variable_cpu_tests + fixed_worker_tests
+        # Calculate total tests
+        total_tests = 0
+        if not args.no_cpu_tests:
+            total_tests += len(args.tests) * len(args.cpu_targets)
+        if not args.no_worker_tests:
+            total_tests += len(args.tests) * len(args.workers)
 
         # Create progress bar
         with tqdm(total=total_tests, desc="Running stress tests", unit="test") as pbar:
             # First run variable CPU utilization tests with fixed workers
-            for test_type in STRESS_TESTS:
-                for cpu_target in CPU_TARGETS:
-                    # Update progress bar description
-                    pbar.set_description(
-                        f"Running {test_type} @ {cpu_target}% CPU ({WORKERS} workers)"
-                    )
+            if not args.no_cpu_tests:
+                for test_type in args.tests:
+                    for cpu_target in args.cpu_targets:
+                        # Update progress bar description
+                        pbar.set_description(
+                            f"Running {test_type} @ {cpu_target}% CPU ({args.fixed_workers} workers)"
+                        )
 
-                    # Run the test
-                    result = run_stress_test(test_type, cpu_target, TEST_DURATION)
-                    results.append(result)
+                        # Run the test
+                        result = run_stress_test(
+                            test_type, cpu_target, args.duration, workers=args.fixed_workers
+                        )
+                        results.append(result)
 
                     # Save results incrementally
                     with open(results_file, "w", newline="") as f:
@@ -380,18 +578,19 @@ def main():
                     time.sleep(2)
 
             # Then run fixed worker tests at 100% CPU
-            for test_type in STRESS_TESTS:
-                for worker_count in FIXED_WORKER_COUNTS:
-                    # Update progress bar description
-                    pbar.set_description(
-                        f"Running {test_type} @ 100% CPU ({worker_count} workers)"
-                    )
+            if not args.no_worker_tests:
+                for test_type in args.tests:
+                    for worker_count in args.workers:
+                        # Update progress bar description
+                        pbar.set_description(
+                            f"Running {test_type} @ 100% CPU ({worker_count} workers)"
+                        )
 
-                    # Run the test with fixed number of workers at 100% CPU
-                    result = run_stress_test(
-                        test_type, 100, TEST_DURATION, workers=worker_count
-                    )
-                    results.append(result)
+                        # Run the test with fixed number of workers at 100% CPU
+                        result = run_stress_test(
+                            test_type, 100, args.duration, workers=worker_count
+                        )
+                        results.append(result)
 
                     # Save results incrementally
                     with open(results_file, "w", newline="") as f:
@@ -415,8 +614,9 @@ def main():
                     time.sleep(2)
 
     finally:
-        # Always restore power settings
-        power_manager.restore_power_saving()
+        # Restore power settings if they were changed
+        if power_manager:
+            power_manager.restore_power_saving()
 
     print(f"\nResults saved to: {results_file}")
     print(f"Total tests completed: {len(results)}")
@@ -425,7 +625,7 @@ def main():
     successful_results = [r for r in results if r["error"] is None]
     if successful_results:
         print("\nSummary:")
-        for test_type in STRESS_TESTS:
+        for test_type in args.tests:
             type_results = [
                 r for r in successful_results if r["test_type"] == test_type
             ]
