@@ -26,7 +26,6 @@ class PowerManager:
 
     def __init__(self):
         self.original_governor = None
-        self.original_turbo = None
 
     def disable_power_saving(self):
         """Disable CPU power saving features."""
@@ -53,20 +52,6 @@ class PowerManager:
         except Exception as e:
             print(f"Warning: Could not set CPU governor: {e}")
 
-        # Disable Intel Turbo Boost if available
-        turbo_path = "/sys/devices/system/cpu/intel_pstate/no_turbo"
-        if os.path.exists(turbo_path):
-            try:
-                with open(turbo_path, "r") as f:
-                    self.original_turbo = f.read().strip()
-                subprocess.run(
-                    ["sudo", "sh", "-c", f"echo 1 > {turbo_path}"],
-                    check=True,
-                    capture_output=True,
-                )
-            except Exception as e:
-                print(f"Warning: Could not disable Intel Turbo: {e}")
-
     def restore_power_saving(self):
         """Restore original power saving settings."""
         print("Restoring power saving modes...")
@@ -88,16 +73,6 @@ class PowerManager:
                         check=False,
                         capture_output=True,
                     )
-
-        # Restore Intel Turbo Boost
-        if self.original_turbo is not None:
-            turbo_path = "/sys/devices/system/cpu/intel_pstate/no_turbo"
-            if os.path.exists(turbo_path):
-                subprocess.run(
-                    ["sudo", "sh", "-c", f"echo {self.original_turbo} > {turbo_path}"],
-                    check=False,
-                    capture_output=True,
-                )
 
 
 def parse_stress_ng_output(output: str) -> Dict[str, float]:

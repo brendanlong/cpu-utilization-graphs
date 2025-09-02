@@ -117,7 +117,6 @@ The analysis script generates:
 The run_stress_tests.py script can optionally manage CPU power settings:
 1. Saves current CPU governor and turbo boost settings
 2. Sets all CPUs to "performance" governor
-3. Disables Intel Turbo Boost (if available)
 4. Restores original settings after tests complete
 
 This ensures consistent performance measurements. Use `--no-power-management` to skip this.
