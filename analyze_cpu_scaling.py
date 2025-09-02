@@ -526,3 +526,79 @@ if __name__ == "__main__":
     # Process each test type
     for test_type in test_types:
         analyze_test_type(df, test_type)
+
+    # Create combined clock speed scatterplot if data exists
+    if "max_clock_speed_mhz" in df.columns:
+        fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+
+        # Define colors for different test types
+        colors = {
+            "cpu": "blue",
+            "int64": "green",
+            "double": "red",
+            "matrixprod": "purple",
+        }
+
+        # Plot data for each test type
+        for test_type in test_types:
+            type_df = df.filter(pl.col("test_type") == test_type)
+
+            clock_speeds = type_df["max_clock_speed_mhz"].to_numpy()
+            cpu_utilization = type_df["actual_cpu_utilization"].to_numpy()
+
+            # Remove any NaN values
+            valid_mask = ~np.isnan(clock_speeds) & ~np.isnan(cpu_utilization)
+            clock_speeds = clock_speeds[valid_mask]
+            cpu_utilization = cpu_utilization[valid_mask]
+
+            if len(clock_speeds) > 0:
+                color = colors.get(test_type, "gray")
+                ax.scatter(
+                    cpu_utilization,
+                    clock_speeds,
+                    alpha=0.6,
+                    s=40,
+                    label=f"{test_type.upper()} (n={len(clock_speeds)})",
+                    color=color,
+                )
+
+        # Get all data for overall trend line
+        all_clock_speeds = df["max_clock_speed_mhz"].to_numpy()
+        all_cpu_utilization = df["actual_cpu_utilization"].to_numpy()
+
+        # Remove NaN values
+        valid_mask = ~np.isnan(all_clock_speeds) & ~np.isnan(all_cpu_utilization)
+        all_clock_speeds = all_clock_speeds[valid_mask]
+        all_cpu_utilization = all_cpu_utilization[valid_mask]
+
+        # Add overall trend line
+        if len(all_cpu_utilization) > 1:
+            z = np.polyfit(all_cpu_utilization, all_clock_speeds, 1)
+            p = np.poly1d(z)
+            x_trend = np.linspace(0, 100, 100)
+            ax.plot(
+                x_trend,
+                p(x_trend),
+                "k--",
+                alpha=0.8,
+                linewidth=2,
+                label=f"Overall trend: {z[0]:.1f}x + {z[1]:.1f}",
+            )
+
+        ax.set_xlabel("Reported CPU Utilization (%)", fontsize=12)
+        ax.set_ylabel("Max Clock Speed (MHz)", fontsize=12)
+        ax.set_title("Clock Speed vs CPU Utilization - All Test Types", fontsize=14)
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc="lower right")
+
+        # Set axis limits - y-axis starts at 0
+        ax.set_xlim(0, 100)
+        ax.set_ylim(0, None)  # Start at 0, auto-scale top
+        ax.set_xticks(np.arange(0, 101, 10))
+
+        plt.tight_layout()
+        clock_filename = "clock_speed_vs_cpu_all.png"
+        plt.savefig(clock_filename, dpi=150, bbox_inches="tight")
+        plt.close()
+
+        print(f"\nCombined clock speed visualization saved to: {clock_filename}")
