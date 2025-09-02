@@ -138,6 +138,28 @@ def measure_cpu_utilization(duration: int, interval: float = 0.1) -> float:
     return sum(measurements) / len(measurements) if measurements else 0.0
 
 
+def get_cpu_frequencies() -> Dict[str, float]:
+    """Get current CPU frequencies for all cores."""
+    frequencies = []
+    for cpu in range(os.cpu_count()):
+        freq_path = f"/sys/devices/system/cpu/cpu{cpu}/cpufreq/scaling_cur_freq"
+        if os.path.exists(freq_path):
+            try:
+                with open(freq_path, "r") as f:
+                    freq_khz = float(f.read().strip())
+                    frequencies.append(freq_khz / 1000)  # Convert to MHz
+            except Exception:
+                pass
+    
+    if frequencies:
+        return {
+            "avg": sum(frequencies) / len(frequencies),
+            "max": max(frequencies),
+            "min": min(frequencies)
+        }
+    return {"avg": 0.0, "max": 0.0, "min": 0.0}
+
+
 def run_stress_test(
     test_type: str, cpu_target: int, duration: int, workers: int = None
 ) -> Dict[str, any]:
@@ -154,6 +176,8 @@ def run_stress_test(
         "actual_cpu_utilization": 0.0,
         "bogo_ops_per_sec": 0.0,
         "total_bogo_ops": 0.0,
+        "avg_clock_speed_mhz": 0.0,
+        "max_clock_speed_mhz": 0.0,
         "error": None,
     }
 
@@ -213,25 +237,47 @@ def run_stress_test(
 
         # Start CPU measurement in background
         cpu_measurements = []
+        clock_speed_measurements = []
+        max_clock_speeds = []
         start_time = time.time()
 
-        # Measure CPU while stress-ng runs
+        # Measure CPU and clock speeds while stress-ng runs
         while process.poll() is None and (time.time() - start_time) < duration + 2:
             cpu_percent = psutil.cpu_percent(interval=0.5)
+            freq_stats = get_cpu_frequencies()
+            
             if time.time() - start_time > 1:  # Skip first second for warmup
                 cpu_measurements.append(cpu_percent)
+                clock_speed_measurements.append(freq_stats["avg"])
+                max_clock_speeds.append(freq_stats["max"])
+        
         # Remove the last two measurements since they can include a drop at the end
-        cpu_measurements.pop()
-        cpu_measurements.pop()
+        if len(cpu_measurements) >= 2:
+            cpu_measurements.pop()
+            cpu_measurements.pop()
+        if len(clock_speed_measurements) >= 2:
+            clock_speed_measurements.pop()
+            clock_speed_measurements.pop()
+        if len(max_clock_speeds) >= 2:
+            max_clock_speeds.pop()
+            max_clock_speeds.pop()
 
         # Get process output
         stdout, stderr = process.communicate(timeout=5)
 
-        # Calculate average CPU utilization
+        # Calculate average CPU utilization and clock speeds
         if cpu_measurements:
             result["actual_cpu_utilization"] = sum(cpu_measurements) / len(
                 cpu_measurements
             )
+        
+        if clock_speed_measurements:
+            result["avg_clock_speed_mhz"] = sum(clock_speed_measurements) / len(
+                clock_speed_measurements
+            )
+        
+        if max_clock_speeds:
+            result["max_clock_speed_mhz"] = max(max_clock_speeds)
 
         # Parse stress-ng metrics
         metrics = parse_stress_ng_output(stdout + stderr)
@@ -275,6 +321,8 @@ def main():
         "duration",
         "workers",
         "actual_cpu_utilization",
+        "avg_clock_speed_mhz",
+        "max_clock_speed_mhz",
         "bogo_ops_per_sec",
         "total_bogo_ops",
         "error",
@@ -319,7 +367,8 @@ def main():
                     # Update postfix with latest results
                     pbar.set_postfix(
                         {
-                            "Actual CPU": f"{result['actual_cpu_utilization']:.1f}%",
+                            "CPU": f"{result['actual_cpu_utilization']:.1f}%",
+                            "Clock": f"{result['avg_clock_speed_mhz']:.0f}MHz",
                             "Bogo ops/s": f"{result['bogo_ops_per_sec']:.1f}",
                         }
                     )
@@ -353,7 +402,8 @@ def main():
                     # Update postfix with latest results
                     pbar.set_postfix(
                         {
-                            "Actual CPU": f"{result['actual_cpu_utilization']:.1f}%",
+                            "CPU": f"{result['actual_cpu_utilization']:.1f}%",
+                            "Clock": f"{result['avg_clock_speed_mhz']:.0f}MHz",
                             "Bogo ops/s": f"{result['bogo_ops_per_sec']:.1f}",
                         }
                     )
