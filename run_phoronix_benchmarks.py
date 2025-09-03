@@ -98,6 +98,10 @@ def parse_phoronix_output(output: str) -> Dict[str, any]:
     """Parse Phoronix Test Suite output to extract benchmark results."""
     results = {}
 
+    # https://stackoverflow.com/a/14693789/212555
+    ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+    output = re.sub(ansi_escape, "", output)
+
     # Common patterns for different benchmark results
     patterns = [
         # Pattern for "Average: X Requests Per Second" or similar
@@ -113,23 +117,21 @@ def parse_phoronix_output(output: str) -> Dict[str, any]:
         # Generic result pattern
         (r"Result:\s+([\d.]+)\s*(.+)?", "result"),
     ]
-
-    lines = output.split("\n")
-    for line in lines:
-        for pattern, key in patterns:
-            match = re.search(pattern, line, re.IGNORECASE)
-            if match:
-                try:
-                    value = float(match.group(1))
-                    unit = match.group(2) if match.lastindex > 1 else ""
-                    results[key] = value
-                    results[f"{key}_unit"] = unit.strip() if unit else ""
-                    # Use the first match found
-                    if "primary_result" not in results:
-                        results["primary_result"] = value
-                        results["primary_unit"] = unit.strip() if unit else ""
-                except ValueError:
-                    pass
+    for pattern, key in patterns:
+        match = re.search(pattern, output, re.IGNORECASE)
+        if match:
+            print(match)
+            try:
+                value = float(match.group(1))
+                unit = match.group(2) if match.lastindex > 1 else ""
+                results[key] = value
+                results[f"{key}_unit"] = unit.strip() if unit else ""
+                # Use the first match found
+                if "primary_result" not in results:
+                    results["primary_result"] = value
+                    results["primary_unit"] = unit.strip() if unit else ""
+            except ValueError:
+                pass
 
     return results
 
